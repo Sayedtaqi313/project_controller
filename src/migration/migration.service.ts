@@ -8,9 +8,19 @@ const execFilePromise = promisify(execFile);
 
 @Injectable()
 export class MigrationService {
-  private readonly scriptPath = path.join(
+  private readonly fullMigrationScript = path.join(
     __dirname,
     '../../scripts/migrate_postgres.sh',
+  );
+
+  private readonly backupScript = path.join(
+    __dirname,
+    '../../scripts/backup_postgres.sh',
+  );
+
+  private readonly restoreScript = path.join(
+    __dirname,
+    '../../scripts/restore_postgres.sh',
   );
 
   async executeMigration(
@@ -31,7 +41,6 @@ export class MigrationService {
       targetPassword,
     } = data;
 
-    // Set environment variables
     process.env.PGPASSWORD =
       sourceType === 'rds' ? sourcePassword : targetPassword;
 
@@ -51,7 +60,10 @@ export class MigrationService {
     ];
 
     try {
-      const { stdout, stderr } = await execFilePromise(this.scriptPath, args);
+      const { stdout, stderr } = await execFilePromise(
+        this.fullMigrationScript,
+        args,
+      );
 
       if (stderr) {
         console.error(`❌ Migration stderr:`, stderr);
@@ -63,6 +75,87 @@ export class MigrationService {
     } catch (error) {
       console.error(`❌ Migration failed:`, error);
       throw new Error(`Migration failed: ${error.message}`);
+    }
+  }
+
+  async backupOnly(
+    data: MigrationDto,
+  ): Promise<{ message: string; output: string }> {
+    const {
+      sourceType,
+      sourceHost,
+      sourcePort,
+      sourceDB,
+      sourceUser,
+      sourcePassword,
+    } = data;
+
+    process.env.PGPASSWORD = sourcePassword;
+
+    const args = [
+      sourceType,
+      sourceHost,
+      sourcePort,
+      sourceDB,
+      sourceUser,
+      sourcePassword,
+    ];
+
+    try {
+      const { stdout, stderr } = await execFilePromise(this.backupScript, args);
+
+      if (stderr) {
+        console.error(`❌ Backup stderr:`, stderr);
+        throw new Error(`Backup script error: ${stderr}`);
+      }
+
+      console.log(`✅ Backup output: ${stdout}`);
+      return { message: 'Backup completed', output: stdout };
+    } catch (error) {
+      console.error(`❌ Backup failed:`, error);
+      throw new Error(`Backup failed: ${error.message}`);
+    }
+  }
+
+  async restoreOnly(
+    data: MigrationDto,
+  ): Promise<{ message: string; output: string }> {
+    const {
+      targetType,
+      targetHost,
+      targetPort,
+      targetDB,
+      targetUser,
+      targetPassword,
+    } = data;
+
+    process.env.PGPASSWORD = targetPassword;
+
+    const args = [
+      targetType,
+      targetHost,
+      targetPort,
+      targetDB,
+      targetUser,
+      targetPassword,
+    ];
+
+    try {
+      const { stdout, stderr } = await execFilePromise(
+        this.restoreScript,
+        args,
+      );
+
+      if (stderr) {
+        console.error(`❌ Restore stderr:`, stderr);
+        throw new Error(`Restore script error: ${stderr}`);
+      }
+
+      console.log(`✅ Restore output: ${stdout}`);
+      return { message: 'Restore completed', output: stdout };
+    } catch (error) {
+      console.error(`❌ Restore failed:`, error);
+      throw new Error(`Restore failed: ${error.message}`);
     }
   }
 }
